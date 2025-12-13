@@ -19,51 +19,94 @@ def toggle_theme():
     else:
         st.session_state.theme = 'light'
 
-# Застосування стилів (CSS Injection)
+# --- CSS СТИЛІ ДЛЯ ТЕМ ---
+# Тут ми жорстко задаємо кольори тексту та фону
+
+dark_css = """
+<style>
+    /* Глобальний фон та текст */
+    .stApp {
+        background-color: #0E1117;
+        color: #FFFFFF;
+    }
+    /* Бічна панель */
+    [data-testid="stSidebar"] {
+        background-color: #262730;
+    }
+    /* Всі заголовки та текст */
+    h1, h2, h3, h4, h5, h6, p, li, span, label, .stMarkdown {
+        color: #FFFFFF !important;
+    }
+    /* Поля вводу (Input, Select, Textarea) - щоб текст був білим на темному */
+    .stTextInput > div > div, .stSelectbox > div > div, .stTextArea > div > div, .stDateInput > div > div {
+        background-color: #41444C !important;
+        color: #FFFFFF !important;
+    }
+    input, textarea {
+        color: #FFFFFF !important; 
+    }
+    /* Таблиці */
+    [data-testid="stDataFrame"], [data-testid="stTable"] {
+        color: #FFFFFF !important;
+    }
+    /* Експандери (розгорталки) */
+    .streamlit-expanderHeader {
+        background-color: #262730 !important;
+        color: #FFFFFF !important;
+    }
+    /* Кнопки */
+    button {
+        color: #FFFFFF !important;
+    }
+</style>
+"""
+
+light_css = """
+<style>
+    /* Глобальний фон та текст */
+    .stApp {
+        background-color: #FFFFFF;
+        color: #000000;
+    }
+    /* Бічна панель */
+    [data-testid="stSidebar"] {
+        background-color: #F0F2F6;
+    }
+    /* Всі заголовки та текст */
+    h1, h2, h3, h4, h5, h6, p, li, span, label, .stMarkdown {
+        color: #000000 !important;
+    }
+    /* Поля вводу - чорний текст на білому */
+    .stTextInput > div > div, .stSelectbox > div > div, .stTextArea > div > div, .stDateInput > div > div {
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
+        border: 1px solid #D3D3D3;
+    }
+    input, textarea {
+        color: #000000 !important;
+    }
+    /* Таблиці */
+    [data-testid="stDataFrame"], [data-testid="stTable"] {
+        color: #000000 !important;
+    }
+    /* Експандери */
+    .streamlit-expanderHeader {
+        background-color: #F0F2F6 !important;
+        color: #000000 !important;
+    }
+    /* Кнопки */
+    button {
+        color: #000000 !important;
+    }
+</style>
+"""
+
+# Застосування вибраної теми
 if st.session_state.theme == 'dark':
-    st.markdown("""
-    <style>
-        /* Глобальний фон */
-        .stApp {
-            background-color: #0E1117;
-            color: #FAFAFA;
-        }
-        /* Бічна панель */
-        [data-testid="stSidebar"] {
-            background-color: #262730;
-        }
-        /* Заголовки */
-        h1, h2, h3, h4, h5, h6, .stMarkdown {
-            color: #FAFAFA !important;
-        }
-        /* Поля вводу (Input, Select) */
-        .stTextInput > div > div, .stSelectbox > div > div, .stTextArea > div > div {
-            background-color: #262730 !important;
-            color: #FAFAFA !important;
-            border-color: #4B4B4B !important;
-        }
-        /* Таблиці */
-        [data-testid="stDataFrame"], [data-testid="stTable"] {
-            background-color: #262730;
-            color: white;
-        }
-        /* Експандери */
-        .streamlit-expanderHeader {
-            background-color: #262730 !important;
-            color: #FAFAFA !important;
-        }
-        /* Метрики */
-        [data-testid="stMetricValue"] {
-            color: #FAFAFA !important;
-        }
-        /* Кнопки */
-        .stButton > button {
-            background-color: #262730;
-            color: #FAFAFA;
-            border: 1px solid #4B4B4B;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+    st.markdown(dark_css, unsafe_allow_html=True)
+else:
+    st.markdown(light_css, unsafe_allow_html=True)
+
 
 # --- КОНСТАНТИ ---
 ADMIN_SECRET_KEY = ""
@@ -190,7 +233,7 @@ def check_hashes(password, hashed_text):
     return False
 
 def create_connection():
-    return sqlite3.connect('university_v15.db', check_same_thread=False)
+    return sqlite3.connect('university_v16.db', check_same_thread=False)
 
 def init_db():
     conn = create_connection()
