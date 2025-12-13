@@ -12,7 +12,7 @@ st.set_page_config(page_title="LMS ФМФКН", layout="wide", page_icon="🎓")
 # --- КОНСТАНТИ ---
 ADMIN_SECRET_KEY = ""
 
-# --- ОНОВЛЕНИЙ СПИСОК ПРЕДМЕТІВ (ПОВНИЙ) ---
+# --- СПИСОК ПРЕДМЕТІВ ---
 SUBJECTS_LIST = [
     # Базові
     "Математичний аналіз", 
@@ -134,7 +134,7 @@ def check_hashes(password, hashed_text):
     return False
 
 def create_connection():
-    return sqlite3.connect('university_v12.db', check_same_thread=False)
+    return sqlite3.connect('university_v13.db', check_same_thread=False)
 
 def init_db():
     conn = create_connection()
@@ -260,7 +260,7 @@ def main_panel():
             query_chart = "SELECT subject, avg(grade) as avg_grade FROM grades GROUP BY subject"
         df_chart = pd.read_sql_query(query_chart, conn)
         if not df_chart.empty: st.bar_chart(df_chart.set_index('subject'))
-        else: st.info("Недостатньо даних.")
+        else: st.info("Наразі дані не завантажені.")
 
     with col_chart2:
         st.markdown("**📉 Відвідуваність**")
@@ -273,7 +273,7 @@ def main_panel():
             base = alt.Chart(att_data).encode(theta=alt.Theta("Кількість", stack=True))
             pie = base.mark_arc(outerRadius=120).encode(color=alt.Color("Статус"), order=alt.Order("Кількість", sort="descending"), tooltip=["Статус", "Кількість"])
             st.altair_chart(pie, use_container_width=True)
-        else: st.info("Дані відсутні.")
+        else: st.info("Наразі дані не завантажені.")
 
     st.divider()
     st.subheader("📢 Оголошення та Новини")
@@ -358,7 +358,7 @@ def schedule_view():
     if not df.empty: 
         st.download_button("⬇️ Завантажити", convert_df_to_csv(df), f"schedule_{grp}.csv", "text/csv")
         st.table(df)
-    else: st.info("Пусто")
+    else: st.info("Наразі дані не завантажені.")
     if st.session_state['role'] in ['admin', 'teacher']:
         st.divider()
         with st.form("sch"):
@@ -424,7 +424,7 @@ def file_repository_view():
                             c.execute("DELETE FROM file_storage WHERE id=?", (row['id'],))
                             conn.commit()
                             st.rerun()
-    else: st.info("Пусто")
+    else: st.info("Наразі дані не завантажені.")
 
 def gradebook_view():
     st.title("💯 Журнал Оцінок")
@@ -505,9 +505,8 @@ def attendance_view():
                         if exists: conn.execute("UPDATE attendance SET status=? WHERE id=?", (val, exists[0]))
                 conn.commit()
                 st.success("Збережено!")
-        else: st.info("Пусто.")
+        else: st.info("Наразі дані не завантажені.")
 
-# --- НОВА СТОРІНКА ЗВІТІВ ---
 def reports_view():
     st.title("📊 Звіти та Пошук")
     conn = create_connection()
@@ -524,7 +523,7 @@ def reports_view():
             matrix = raw.pivot_table(index='student_name', columns='type_of_work', values='grade', aggfunc='first').fillna(0)
             st.dataframe(matrix, use_container_width=True)
             st.download_button("⬇️ Завантажити відомість", convert_df_to_csv(matrix), f"vidomist_{grp}_{subj}.csv", "text/csv")
-        else: st.warning("Дані відсутні.")
+        else: st.warning("Наразі дані не завантажені.")
 
     with t2:
         st.subheader("Пошук студента")
@@ -532,12 +531,10 @@ def reports_view():
         if not all_students.empty:
             selected_student = st.selectbox("Оберіть студента", all_students['full_name'].tolist())
             
-            # Інформація
             info = pd.read_sql(f"SELECT * FROM students WHERE full_name='{selected_student}'", conn)
             st.write("**Інформація:**")
             st.dataframe(info, use_container_width=True)
             
-            # Оцінки
             grades = pd.read_sql(f"SELECT subject, type_of_work, grade, date FROM grades WHERE student_name='{selected_student}'", conn)
             st.write("**Оцінки:**")
             if not grades.empty:
@@ -545,13 +542,12 @@ def reports_view():
                 st.metric("Середній бал", f"{grades['grade'].mean():.2f}")
                 st.download_button("⬇️ Скачати виписку оцінок", convert_df_to_csv(grades), f"grades_{selected_student}.csv", "text/csv")
             else: st.info("Оцінок немає.")
-        else: st.error("База студентів порожня.")
+        else: st.error("Наразі дані не завантажені.")
 
     with t3:
         st.subheader("Генератор Зведеної Відомості")
         grp_sum = st.selectbox("Оберіть групу", list(GROUPS_DATA.keys()), key="rep_sum_grp")
         
-        # Визначаємо доступні предмети для цієї групи
         available_subjects_query = f"SELECT DISTINCT subject FROM grades WHERE group_name='{grp_sum}'"
         available_subjects = pd.read_sql(available_subjects_query, conn)['subject'].tolist()
         
@@ -573,7 +569,6 @@ def reports_view():
                 
                 if not data.empty:
                     summary_matrix = data.pivot_table(index='student_name', columns='subject', values='final_grade').fillna(0).round(0).astype(int)
-                    # Додаємо повний список студентів
                     all_students_df = pd.read_sql(f"SELECT full_name FROM students WHERE group_name='{grp_sum}'", conn)
                     summary_matrix = all_students_df.merge(summary_matrix, left_on='full_name', right_index=True, how='left').fillna(0)
                     summary_matrix.set_index('full_name', inplace=True)
@@ -606,15 +601,15 @@ def main():
         st.sidebar.caption(f"Роль: {st.session_state['role']}")
         st.sidebar.divider()
         menu_options = {
-            "Головна панель": main_panel,
-            "Студенти та Групи": students_groups_view,
-            "Викладачі та Кафедри": teachers_view,
-            "Розклад занять": schedule_view,
-            "Електронний журнал": gradebook_view,
-            "Журнал відвідуваності": attendance_view,
-            "Звіти та Пошук": reports_view, # <-- Нова сторінка
-            "Документообіг": documents_view,
-            "Файловий репозиторій": file_repository_view
+            "🏠 Головна панель": main_panel,
+            "👥 Студенти та Групи": students_groups_view,
+            "👨‍🏫 Викладачі та Кафедри": teachers_view,
+            "📅 Розклад занять": schedule_view,
+            "💯 Електронний журнал": gradebook_view,
+            "📝 Журнал відвідуваності": attendance_view,
+            "📊 Звіти та Пошук": reports_view,
+            "📂 Документообіг": documents_view,
+            "🗄️ Файловий репозиторій": file_repository_view
         }
         selection = st.sidebar.radio("Навігація", list(menu_options.keys()))
         menu_options[selection]()
