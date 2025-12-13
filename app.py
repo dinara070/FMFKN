@@ -77,7 +77,7 @@ def check_hashes(password, hashed_text):
     return False
 
 def create_connection():
-    return sqlite3.connect('university_v10.db', check_same_thread=False)
+    return sqlite3.connect('university_v11.db', check_same_thread=False)
 
 def init_db():
     conn = create_connection()
@@ -491,25 +491,49 @@ def reports_view():
         else: st.error("База студентів порожня.")
 
     with t3:
-        st.subheader("Зведена відомість успішності (Середні бали)")
-        grp_sum = st.selectbox("Група", list(GROUPS_DATA.keys()), key="rep_sum_grp")
+        st.subheader("Генератор Зведеної Відомості")
+        grp_sum = st.selectbox("Оберіть групу", list(GROUPS_DATA.keys()), key="rep_sum_grp")
         
-        # Рахуємо середній бал по кожному предмету для кожного студента
-        query = f"""
-            SELECT student_name, subject, AVG(grade) as avg_grade 
-            FROM grades 
-            WHERE group_name='{grp_sum}' 
-            GROUP BY student_name, subject
-        """
-        data = pd.read_sql(query, conn)
+        # Визначаємо доступні предмети для цієї групи
+        available_subjects_query = f"SELECT DISTINCT subject FROM grades WHERE group_name='{grp_sum}'"
+        available_subjects = pd.read_sql(available_subjects_query, conn)['subject'].tolist()
         
-        if not data.empty:
-            # Pivot: Rows=Student, Cols=Subject, Val=AvgGrade
-            summary_matrix = data.pivot_table(index='student_name', columns='subject', values='avg_grade').fillna(0).round(1)
-            st.dataframe(summary_matrix, use_container_width=True)
-            st.download_button("⬇️ Завантажити зведену відомість", convert_df_to_csv(summary_matrix), f"summary_{grp_sum}.csv", "text/csv")
-        else:
-            st.warning("Дані відсутні.")
+        if not available_subjects:
+            available_subjects = SUBJECTS_LIST
+            
+        selected_subjects = st.multiselect("Оберіть предмети для відомості", options=available_subjects, default=available_subjects)
+        
+        if st.button("🔄 Згенерувати таблицю"):
+            if selected_subjects:
+                subjects_placeholder = "'" + "','".join(selected_subjects) + "'"
+                query = f"""
+                    SELECT student_name, subject, AVG(grade) as final_grade 
+                    FROM grades 
+                    WHERE group_name='{grp_sum}' AND subject IN ({subjects_placeholder})
+                    GROUP BY student_name, subject
+                """
+                data = pd.read_sql(query, conn)
+                
+                if not data.empty:
+                    summary_matrix = data.pivot_table(index='student_name', columns='subject', values='final_grade').fillna(0).round(0).astype(int)
+                    # Додаємо повний список студентів
+                    all_students_df = pd.read_sql(f"SELECT full_name FROM students WHERE group_name='{grp_sum}'", conn)
+                    summary_matrix = all_students_df.merge(summary_matrix, left_on='full_name', right_index=True, how='left').fillna(0)
+                    summary_matrix.set_index('full_name', inplace=True)
+                    
+                    st.success(f"Згенеровано відомість для групи {grp_sum}")
+                    st.dataframe(summary_matrix, use_container_width=True)
+                    
+                    st.download_button(
+                        label="⬇️ Завантажити таблицю (CSV)",
+                        data=convert_df_to_csv(summary_matrix),
+                        file_name=f"zvedena_vidomist_{grp_sum}.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.warning("Для обраних предметів оцінки відсутні.")
+            else:
+                st.error("Будь ласка, оберіть хоча б один предмет.")
 
 def main():
     init_db()
