@@ -742,7 +742,7 @@ def reports_view():
             else: st.error("Будь ласка, оберіть хоча б один предмет.")
 
 def deanery_modules_view():
-    st.title("🏛️ Модулі Деканату")
+    st.title("Модулі Деканату")
     if st.session_state['role'] not in DEAN_LEVEL:
         st.error("У вас немає доступу до цієї панелі.")
         return
@@ -948,7 +948,7 @@ def deanery_modules_view():
 
 # --- НОВИЙ МОДУЛЬ: СЕСІЯ ТА РУХ КОНТИНГЕНТУ ---
 def session_module_view():
-    st.title("🎓 Сесія та Рух контингенту")
+    st.title("Сесія та Рух контингенту")
     if st.session_state['role'] not in DEAN_LEVEL:
         st.error("Доступ заборонено.")
         return
@@ -1139,7 +1139,7 @@ def session_module_view():
                 st.rerun()
 
 def system_settings_view():
-    st.title("⚙️ Системні налаштування")
+    st.title("Системні налаштування")
     
     # Тільки для адмінів
     if st.session_state['role'] != 'admin':
@@ -1231,12 +1231,12 @@ def main():
         
         # Додаткові пункти для Адміністрації та Деканату (але не Викладачів)
         if st.session_state['role'] in DEAN_LEVEL:
-            menu_options["🏛️ Модулі Деканату"] = deanery_modules_view
-            menu_options["🎓 Сесія та Рух"] = session_module_view  # --- ДОДАНО НОВИЙ ПУНКТ ---
+            menu_options["Модулі Деканату"] = deanery_modules_view
+            menu_options["Сесія та Рух"] = session_module_view  # --- ДОДАНО НОВИЙ ПУНКТ ---
         
         # Системні налаштування тільки для Admin
         if st.session_state['role'] == 'admin':
-            menu_options["⚙️ Системні налаштування"] = system_settings_view
+            menu_options["Системні налаштування"] = system_settings_view
 
         selection = st.sidebar.radio("Навігація", list(menu_options.keys()))
         menu_options[selection]()
