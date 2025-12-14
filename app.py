@@ -62,7 +62,7 @@ ROLES_LIST = ["student", "starosta", "teacher", "methodist", "dean", "admin"]
 # Рівень 1: Викладачі та вище (Можуть ставити оцінки, вантажити файли, писати новини)
 TEACHER_LEVEL = ['teacher', 'methodist', 'dean', 'admin']
 
-# Рівень 2: Деканат та вище (Можуть додавати студентів, змінювати розклад, керувати стипендіями)
+# Рівень 2: Деканат та вище (Можуть додавати студентів, змінювати розклад, керувати стипендіями, редагувати анкету)
 DEAN_LEVEL = ['methodist', 'dean', 'admin']
 
 # --- СПИСОК ПРЕДМЕТІВ ---
@@ -146,7 +146,7 @@ def check_hashes(password, hashed_text):
     return False
 
 def create_connection():
-    return sqlite3.connect('university_v20.db', check_same_thread=False)
+    return sqlite3.connect('university_v21.db', check_same_thread=False)
 
 def init_db():
     conn = create_connection()
@@ -162,6 +162,20 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS dormitory(id INTEGER PRIMARY KEY AUTOINCREMENT, student_name TEXT, room_number TEXT, payment_status TEXT, comments TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS scholarship(id INTEGER PRIMARY KEY AUTOINCREMENT, student_name TEXT, type TEXT, amount INTEGER, status TEXT, date_assigned TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS system_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, action TEXT, details TEXT, timestamp TEXT)''')
+    
+    # --- НОВА ТАБЛИЦЯ: ДЕТАЛЬНА АНКЕТА СТУДЕНТА (Вкладка "Навчання") ---
+    c.execute('''CREATE TABLE IF NOT EXISTS student_education_info(
+        student_name TEXT PRIMARY KEY,
+        status TEXT, study_form TEXT, course INTEGER, is_contract TEXT,
+        faculty TEXT, specialty TEXT, edu_program TEXT,
+        referral_type TEXT, enterprise TEXT,
+        enroll_protocol_num TEXT, enroll_order_num TEXT, enroll_condition TEXT,
+        enroll_protocol_date TEXT, enroll_order_date TEXT, enroll_date TEXT,
+        grad_order_num TEXT, grad_order_date TEXT, grad_date TEXT,
+        student_id_card TEXT, gradebook_id TEXT, library_card TEXT,
+        curator TEXT, last_modified TEXT
+    )''')
+
     conn.commit()
 
     c.execute('SELECT count(*) FROM students')
@@ -554,6 +568,7 @@ def attendance_view():
 def reports_view():
     st.title("📊 Звіти та Пошук")
     conn = create_connection()
+    c = conn.cursor()
     t1, t2, t3 = st.tabs(["📋 Відомість (Група/Предмет)", "🎓 Картка Студента", "📈 Зведена відомість"])
     
     with t1:
@@ -570,20 +585,110 @@ def reports_view():
         else: st.warning("Наразі дані не завантажені.")
 
     with t2:
-        st.subheader("Пошук студента")
+        st.subheader("Електронна Анкета Студента")
         all_students = pd.read_sql("SELECT full_name FROM students", conn)
         if not all_students.empty:
             selected_student = st.selectbox("Оберіть студента", all_students['full_name'].tolist())
-            info = pd.read_sql(f"SELECT * FROM students WHERE full_name='{selected_student}'", conn)
-            st.write("**Інформація:**")
-            st.dataframe(info, use_container_width=True)
-            grades = pd.read_sql(f"SELECT subject, type_of_work, grade, date FROM grades WHERE student_name='{selected_student}'", conn)
-            st.write("**Оцінки:**")
-            if not grades.empty:
-                st.dataframe(grades, use_container_width=True)
-                st.metric("Середній бал", f"{grades['grade'].mean():.2f}")
-                st.download_button("⬇️ Скачати виписку оцінок", convert_df_to_csv(grades), f"grades_{selected_student}.csv", "text/csv")
-            else: st.info("Оцінок немає.")
+            
+            # Вкладки всередині анкети
+            tab_main, tab_edu, tab_grades = st.tabs(["Загальна Інформація", "Закладка 'Навчання'", "Успішність (Архів)"])
+            
+            # --- Вкладка 1: Загальна (стара таблиця) ---
+            with tab_main:
+                info = pd.read_sql(f"SELECT * FROM students WHERE full_name='{selected_student}'", conn)
+                st.write("**Основні дані:**")
+                st.dataframe(info, use_container_width=True)
+
+            # --- Вкладка 2: Навчання (Новий функціонал) ---
+            with tab_edu:
+                # Завантаження існуючих даних
+                edu_data = pd.read_sql(f"SELECT * FROM student_education_info WHERE student_name='{selected_student}'", conn)
+                
+                # Якщо даних немає, створюємо пустий словник для форми
+                if edu_data.empty:
+                    d = {}
+                else:
+                    d = edu_data.iloc[0].to_dict()
+
+                # Форма редагування (доступна тільки DEAN_LEVEL)
+                disabled = st.session_state['role'] not in DEAN_LEVEL
+                
+                with st.form("edu_form"):
+                    st.markdown(f"### Стан студента: {selected_student}")
+                    
+                    c1, c2, c3 = st.columns(3)
+                    status = c1.selectbox("Стан", ["Навчається", "У академвідпустці", "Відрахований", "Випускник"], index=0 if 'status' not in d else ["Навчається", "У академвідпустці", "Відрахований", "Випускник"].index(d.get('status', 'Навчається')), disabled=disabled)
+                    form_edu = c2.selectbox("Форма навчання", ["Денна", "Заочна"], index=0 if d.get('study_form') != "Заочна" else 1, disabled=disabled)
+                    course = c3.number_input("Курс", min_value=1, max_value=6, value=d.get('course', 1), disabled=disabled)
+                    
+                    c4, c5 = st.columns(2)
+                    faculty = c4.text_input("Факультет", value=d.get('faculty', "ФМФКН"), disabled=disabled)
+                    specialty = c5.text_input("Спеціальність / Освітня програма", value=d.get('edu_program', ""), disabled=disabled)
+                    
+                    st.markdown("#### Зарахування та Направлення")
+                    c6, c7, c8 = st.columns(3)
+                    is_contract = c6.checkbox("Контракт", value=(d.get('is_contract') == 'True'), disabled=disabled)
+                    ref_type = c7.text_input("Тип направлення", value=d.get('referral_type', ""), disabled=disabled)
+                    enterprise = c8.text_input("Підприємство", value=d.get('enterprise', ""), disabled=disabled)
+                    
+                    c9, c10, c11 = st.columns(3)
+                    enr_prot = c9.text_input("№ Протоколу зарахування", value=d.get('enroll_protocol_num', ""), disabled=disabled)
+                    enr_ord = c10.text_input("№ Наказу зарахування", value=d.get('enroll_order_num', ""), disabled=disabled)
+                    enr_date = c11.text_input("Дата вступу (РРРР-ММ-ДД)", value=d.get('enroll_date', ""), disabled=disabled)
+                    
+                    st.markdown("#### Документи та Куратор")
+                    c12, c13, c14 = st.columns(3)
+                    stud_id = c12.text_input("Студентський квиток", value=d.get('student_id_card', ""), disabled=disabled)
+                    grade_id = c13.text_input("Залікова книжка", value=d.get('gradebook_id', ""), disabled=disabled)
+                    lib_id = c14.text_input("Читацький квиток", value=d.get('library_card', ""), disabled=disabled)
+                    
+                    curator = st.text_input("Куратор групи", value=d.get('curator', ""), disabled=disabled)
+                    
+                    st.markdown("#### Випуск / Звільнення")
+                    c15, c16 = st.columns(2)
+                    grad_ord = c15.text_input("№ Наказу про випуск", value=d.get('grad_order_num', ""), disabled=disabled)
+                    grad_date = c16.text_input("Дата випуску", value=d.get('grad_date', ""), disabled=disabled)
+
+                    # Показуємо дату останньої зміни
+                    if 'last_modified' in d and d['last_modified']:
+                         st.caption(f"Остання зміна: {d['last_modified']}")
+
+                    if not disabled:
+                        if st.form_submit_button("Зберегти зміни в анкеті"):
+                            last_mod = datetime.now().strftime("%Y-%m-%d %H:%M")
+                            # Check if exists
+                            exists = c.execute(f"SELECT student_name FROM student_education_info WHERE student_name='{selected_student}'").fetchone()
+                            if exists:
+                                c.execute("""UPDATE student_education_info SET 
+                                    status=?, study_form=?, course=?, is_contract=?, faculty=?, specialty=?, edu_program=?,
+                                    referral_type=?, enterprise=?, enroll_protocol_num=?, enroll_order_num=?, enroll_date=?,
+                                    grad_order_num=?, grad_date=?, student_id_card=?, gradebook_id=?, library_card=?, curator=?, last_modified=?
+                                    WHERE student_name=?""",
+                                    (status, form_edu, course, str(is_contract), faculty, specialty, specialty,
+                                     ref_type, enterprise, enr_prot, enr_ord, enr_date,
+                                     grad_ord, grad_date, stud_id, grade_id, lib_id, curator, last_mod, selected_student))
+                            else:
+                                c.execute("""INSERT INTO student_education_info (
+                                    student_name, status, study_form, course, is_contract, faculty, specialty, edu_program,
+                                    referral_type, enterprise, enroll_protocol_num, enroll_order_num, enroll_date,
+                                    grad_order_num, grad_date, student_id_card, gradebook_id, library_card, curator, last_modified
+                                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                (selected_student, status, form_edu, course, str(is_contract), faculty, specialty, specialty,
+                                 ref_type, enterprise, enr_prot, enr_ord, enr_date,
+                                 grad_ord, grad_date, stud_id, grade_id, lib_id, curator, last_mod))
+                            conn.commit()
+                            log_action(st.session_state['full_name'], "Edit Student Profile", f"Змінено анкету {selected_student}")
+                            st.success("Анкету оновлено!")
+                            st.rerun()
+
+            # --- Вкладка 3: Оцінки ---
+            with tab_grades:
+                grades = pd.read_sql(f"SELECT subject, type_of_work, grade, date FROM grades WHERE student_name='{selected_student}'", conn)
+                if not grades.empty:
+                    st.dataframe(grades, use_container_width=True)
+                    st.metric("Середній бал", f"{grades['grade'].mean():.2f}")
+                else: st.info("Оцінок немає.")
+                
         else: st.error("Наразі дані не завантажені.")
 
     with t3:
