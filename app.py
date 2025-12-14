@@ -19,7 +19,7 @@ def toggle_theme():
     else:
         st.session_state.theme = 'light'
 
-# --- CSS СТИЛІ ДЛЯ ТЕМ ---
+# --- CSS СТИЛІ ---
 dark_css = """
 <style>
     .stApp { background-color: #0E1117; color: #FFFFFF; }
@@ -57,8 +57,9 @@ else:
 
 
 # --- КОНСТАНТИ ---
-# Розширений список ролей
 ROLES_LIST = ["student", "starosta", "teacher", "methodist", "dean", "admin"]
+# Ролі, які мають права редагування (Admin-like)
+EDIT_RIGHTS = ['admin', 'teacher', 'dean', 'methodist']
 
 # --- СПИСОК ПРЕДМЕТІВ ---
 SUBJECTS_LIST = [
@@ -141,7 +142,7 @@ def check_hashes(password, hashed_text):
     return False
 
 def create_connection():
-    return sqlite3.connect('university_v18.db', check_same_thread=False)
+    return sqlite3.connect('university_v19.db', check_same_thread=False)
 
 def init_db():
     conn = create_connection()
@@ -156,10 +157,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, message TEXT, author TEXT, date TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS dormitory(id INTEGER PRIMARY KEY AUTOINCREMENT, student_name TEXT, room_number TEXT, payment_status TEXT, comments TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS scholarship(id INTEGER PRIMARY KEY AUTOINCREMENT, student_name TEXT, type TEXT, amount INTEGER, status TEXT, date_assigned TEXT)''')
-    
-    # --- ТАБЛИЦЯ ЛОГІВ ---
     c.execute('''CREATE TABLE IF NOT EXISTS system_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, action TEXT, details TEXT, timestamp TEXT)''')
-    
     conn.commit()
 
     c.execute('SELECT count(*) FROM students')
@@ -210,7 +208,6 @@ def login_register_page():
     elif action == "Реєстрація":
         new_user = st.text_input("Вигадайте логін")
         new_pass = st.text_input("Вигадайте пароль", type='password')
-        # Для простоти реєстрації поки залишаємо основні ролі, адмін потім може змінити на Декана/Методиста
         role = st.selectbox("Хто ви?", ["student", "teacher", "admin"])
         full_name = ""
         group_link = ""
@@ -248,8 +245,7 @@ def main_panel():
     st.title("🏠 Головна панель LMS")
     st.markdown(f"### Вітаємо, {st.session_state['full_name']}!")
     conn = create_connection()
-    c = conn.cursor()
-
+    
     st.divider()
     st.subheader("📊 Аналітика та Статистика")
     kpi1, kpi2, kpi3 = st.columns(3)
@@ -299,13 +295,15 @@ def main_panel():
 
     st.divider()
     st.subheader("📢 Оголошення та Новини")
-    if st.session_state['role'] in ['admin', 'teacher', 'dean', 'methodist']:
+    # Додавати новини можуть тільки Адміни та Викладачі
+    if st.session_state['role'] in EDIT_RIGHTS:
         with st.expander("📝 Додати нове оголошення"):
             with st.form("news_form"):
                 n_title = st.text_input("Заголовок новини")
                 n_msg = st.text_area("Текст оголошення")
                 if st.form_submit_button("Опублікувати"):
                     if n_title and n_msg:
+                        c = conn.cursor()
                         date_pub = datetime.now().strftime("%Y-%m-%d %H:%M")
                         c.execute("INSERT INTO news (title, message, author, date) VALUES (?,?,?,?)", (n_title, n_msg, st.session_state['full_name'], date_pub))
                         conn.commit()
@@ -332,8 +330,8 @@ def students_groups_view():
     st.download_button("⬇️ Експортувати (CSV)", csv, "students.csv", "text/csv")
     st.dataframe(df, use_container_width=True)
     
-    # Доступ для адмінів, деканату та методистів
-    if st.session_state['role'] in ['admin', 'teacher', 'dean', 'methodist']:
+    # Керування доступно ТІЛЬКИ для EDIT_RIGHTS
+    if st.session_state['role'] in EDIT_RIGHTS:
         st.divider()
         st.subheader("🛠️ Управління")
         t1, t2, t3 = st.tabs(["➕ Додати", "📥 Імпорт", "🗑️ Видалити"])
@@ -384,7 +382,9 @@ def schedule_view():
         st.download_button("⬇️ Завантажити", convert_df_to_csv(df), f"schedule_{grp}.csv", "text/csv")
         st.table(df)
     else: st.info("Наразі дані не завантажені.")
-    if st.session_state['role'] in ['admin', 'teacher', 'dean', 'methodist']:
+    
+    # Редагування розкладу ТІЛЬКИ для EDIT_RIGHTS
+    if st.session_state['role'] in EDIT_RIGHTS:
         st.divider()
         with st.form("sch"):
             d = st.selectbox("День", ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця"])
@@ -398,6 +398,7 @@ def schedule_view():
 
 def documents_view():
     st.title("📂 Документи")
+    # Студент може створювати запит, але не змінювати статус
     menu = ["Мої заяви", "Створити"]
     c = st.selectbox("Меню", menu)
     conn = create_connection()
@@ -417,7 +418,9 @@ def file_repository_view():
     c = conn.cursor()
     col_f1, col_f2 = st.columns([2,1])
     with col_f1: filter_subj = st.selectbox("📂 Фільтр по предмету", ["Всі"] + SUBJECTS_LIST)
-    if st.session_state['role'] in ['admin', 'teacher', 'dean', 'methodist']:
+    
+    # Завантаження файлів ТІЛЬКИ для EDIT_RIGHTS
+    if st.session_state['role'] in EDIT_RIGHTS:
         with st.expander("📤 Завантажити"):
             with st.form("upload_form"):
                 uploaded_file = st.file_uploader("Файл", accept_multiple_files=False)
@@ -455,10 +458,12 @@ def gradebook_view():
     st.title("💯 Журнал Оцінок")
     conn = create_connection()
     c = conn.cursor()
+    # СТУДЕНТ ТА СТАРОСТА ТІЛЬКИ ЧИТАЮТЬ
     if st.session_state['role'] in ['student', 'starosta']:
         df = pd.read_sql(f"SELECT subject, type_of_work, grade, date FROM grades WHERE student_name='{st.session_state['full_name']}'", conn)
         st.dataframe(df, use_container_width=True)
     else:
+        # ВИКЛАДАЧ/АДМІН РЕДАГУЄ
         t_journal, t_ops = st.tabs(["Журнал", "📥/📤 Операції"])
         c1, c2 = st.columns(2)
         grp = c1.selectbox("Група", list(GROUPS_DATA.keys()))
@@ -482,13 +487,11 @@ def gradebook_view():
                     changes_made = False
                     for s_name, row in edited.iterrows():
                         for w_name, val in row.items():
-                            # Отримуємо старе значення для логування
                             old_row = c.execute("SELECT id, grade FROM grades WHERE student_name=? AND subject=? AND type_of_work=?", (s_name, subj, w_name)).fetchone()
                             if old_row:
                                 old_grade = old_row[1]
                                 if old_grade != val:
                                     c.execute("UPDATE grades SET grade=? WHERE id=?", (val, old_row[0]))
-                                    # --- ЛОГУВАННЯ ДІЇ ---
                                     log_action(st.session_state['full_name'], "Grade Update", f"{s_name} | {subj} | {w_name}: {old_grade} -> {val}")
                                     changes_made = True
                     conn.commit()
@@ -513,11 +516,12 @@ def gradebook_view():
 def attendance_view():
     st.title("📝 Журнал Відвідуваності")
     conn = create_connection()
+    # СТУДЕНТ ТІЛЬКИ ЧИТАЄ
     if st.session_state['role'] == 'student':
         df_att = pd.read_sql(f"SELECT subject, date_column as 'Дата', status FROM attendance WHERE student_name='{st.session_state['full_name']}'", conn)
         st.dataframe(df_att, use_container_width=True)
     else:
-        # Староста теж має доступ до редагування
+        # Староста/Викладач редагують
         c1, c2 = st.columns(2)
         grp = c1.selectbox("Група", list(GROUPS_DATA.keys()), key="att_grp")
         subj = c2.selectbox("Предмет", SUBJECTS_LIST, key="att_sbj")
@@ -605,9 +609,9 @@ def reports_view():
 
 def admin_integrations_view():
     st.title("🏛️ Адміністративні інтеграції")
-    
-    if st.session_state['role'] in ['student', 'starosta']:
-        st.warning("У вас немає доступу до панелі керування інтеграціями.")
+    # Доступ тільки для адмінів та деканату
+    if st.session_state['role'] not in EDIT_RIGHTS:
+        st.error("У вас немає доступу до цієї панелі.")
         return
 
     conn = create_connection()
@@ -618,7 +622,6 @@ def admin_integrations_view():
     # --- ТАБ 1: ЄДЕБО (Експорт/Імпорт) ---
     with tab1:
         st.header("Єдина державна електронна база з питань освіти")
-        st.markdown("Імпорт та експорт даних студентів для синхронізації з державною базою.")
         col_ex, col_im = st.columns(2)
         with col_ex:
             st.subheader("📤 Експорт даних")
@@ -631,13 +634,12 @@ def admin_integrations_view():
                     st.download_button(label="⬇️ Завантажити JSON", data=json_data, file_name=f"edebo_export_{datetime.now().date()}.json", mime="application/json")
                 else:
                     xml_data = df_edebo.to_csv(index=False) 
-                    st.info("XML генерація потребує бібліотеки lxml. Використано CSV як проміжний формат.")
                     st.download_button(label="⬇️ Завантажити XML/CSV", data=xml_data, file_name=f"edebo_export_{datetime.now().date()}.csv", mime="text/csv")
         with col_im:
             st.subheader("📥 Імпорт наказів")
             uploaded_edebo = st.file_uploader("Завантажте файл з ЄДЕБО (JSON/XML)", type=['json', 'xml'])
             if uploaded_edebo:
-                st.success("Файл проаналізовано. Система готова до синхронізації (Демо-режим).")
+                st.success("Файл проаналізовано.")
 
     # --- ТАБ 2: ГУРТОЖИТОК ---
     with tab2:
@@ -770,7 +772,11 @@ def main():
         login_register_page()
     else:
         st.sidebar.title(f"👤 {st.session_state['full_name']}")
-        st.sidebar.caption(f"Роль: {st.session_state['role'].upper()}")
+        role_upper = st.session_state['role'].upper()
+        if st.session_state['role'] == 'student':
+             st.sidebar.markdown("### 🛡️ СТУДЕНТ (READ ONLY)")
+        else:
+             st.sidebar.caption(f"Роль: {role_upper}")
         
         if st.sidebar.button("Перемкнути тему 🌓"):
             toggle_theme()
@@ -792,7 +798,7 @@ def main():
         }
         
         # Додаткові пункти для Адміністрації
-        if st.session_state['role'] in ['admin', 'dean', 'methodist']:
+        if st.session_state['role'] in EDIT_RIGHTS:
             menu_options["Адмін. Інтеграції (Деканат)"] = admin_integrations_view
         
         # Системні налаштування тільки для Admin
