@@ -9,7 +9,7 @@ import altair as alt
 # --- КОНФІГУРАЦІЯ СТОРІНКИ ---
 st.set_page_config(page_title="LMS ФМФКН - Деканат", layout="wide", page_icon="🎓")
 
-# --- ЛОГІКА ПЕРЕМИКАННЯ ТЕМИ (Dark/Light Mode) ---
+# --- ЛОГІКА ПЕРЕМИКАННЯ ТЕМИ ---
 if 'theme' not in st.session_state:
     st.session_state.theme = 'light'
 
@@ -56,10 +56,14 @@ else:
     st.markdown(light_css, unsafe_allow_html=True)
 
 
-# --- КОНСТАНТИ ---
+# --- КОНСТАНТИ ТА ПРАВА ДОСТУПУ ---
 ROLES_LIST = ["student", "starosta", "teacher", "methodist", "dean", "admin"]
-# Ролі, які мають права редагування (Admin-like)
-EDIT_RIGHTS = ['admin', 'teacher', 'dean', 'methodist']
+
+# Рівень 1: Викладачі та вище (Можуть ставити оцінки, вантажити файли, писати новини)
+TEACHER_LEVEL = ['teacher', 'methodist', 'dean', 'admin']
+
+# Рівень 2: Деканат та вище (Можуть додавати студентів, змінювати розклад, керувати стипендіями)
+DEAN_LEVEL = ['methodist', 'dean', 'admin']
 
 # --- СПИСОК ПРЕДМЕТІВ ---
 SUBJECTS_LIST = [
@@ -142,7 +146,7 @@ def check_hashes(password, hashed_text):
     return False
 
 def create_connection():
-    return sqlite3.connect('university_v19.db', check_same_thread=False)
+    return sqlite3.connect('university_v20.db', check_same_thread=False)
 
 def init_db():
     conn = create_connection()
@@ -295,8 +299,8 @@ def main_panel():
 
     st.divider()
     st.subheader("📢 Оголошення та Новини")
-    # Додавати новини можуть тільки Адміни та Викладачі
-    if st.session_state['role'] in EDIT_RIGHTS:
+    # Додавати новини можуть TEACHER_LEVEL (Вчитель, Методист, Декан, Адмін)
+    if st.session_state['role'] in TEACHER_LEVEL:
         with st.expander("📝 Додати нове оголошення"):
             with st.form("news_form"):
                 n_title = st.text_input("Заголовок новини")
@@ -330,8 +334,8 @@ def students_groups_view():
     st.download_button("⬇️ Експортувати (CSV)", csv, "students.csv", "text/csv")
     st.dataframe(df, use_container_width=True)
     
-    # Керування доступно ТІЛЬКИ для EDIT_RIGHTS
-    if st.session_state['role'] in EDIT_RIGHTS:
+    # Редагування: ТІЛЬКИ ДЕКАНАТ (DEAN_LEVEL) - Вчитель тут тільки читає
+    if st.session_state['role'] in DEAN_LEVEL:
         st.divider()
         st.subheader("🛠️ Управління")
         t1, t2, t3 = st.tabs(["➕ Додати", "📥 Імпорт", "🗑️ Видалити"])
@@ -383,8 +387,8 @@ def schedule_view():
         st.table(df)
     else: st.info("Наразі дані не завантажені.")
     
-    # Редагування розкладу ТІЛЬКИ для EDIT_RIGHTS
-    if st.session_state['role'] in EDIT_RIGHTS:
+    # Редагування розкладу: ТІЛЬКИ ДЕКАНАТ (DEAN_LEVEL) - Вчитель тільки читає
+    if st.session_state['role'] in DEAN_LEVEL:
         st.divider()
         with st.form("sch"):
             d = st.selectbox("День", ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця"])
@@ -398,7 +402,6 @@ def schedule_view():
 
 def documents_view():
     st.title("📂 Документи")
-    # Студент може створювати запит, але не змінювати статус
     menu = ["Мої заяви", "Створити"]
     c = st.selectbox("Меню", menu)
     conn = create_connection()
@@ -419,8 +422,8 @@ def file_repository_view():
     col_f1, col_f2 = st.columns([2,1])
     with col_f1: filter_subj = st.selectbox("📂 Фільтр по предмету", ["Всі"] + SUBJECTS_LIST)
     
-    # Завантаження файлів ТІЛЬКИ для EDIT_RIGHTS
-    if st.session_state['role'] in EDIT_RIGHTS:
+    # Завантаження файлів: ВЧИТЕЛЬ + ДЕКАНАТ (TEACHER_LEVEL)
+    if st.session_state['role'] in TEACHER_LEVEL:
         with st.expander("📤 Завантажити"):
             with st.form("upload_form"):
                 uploaded_file = st.file_uploader("Файл", accept_multiple_files=False)
@@ -463,7 +466,7 @@ def gradebook_view():
         df = pd.read_sql(f"SELECT subject, type_of_work, grade, date FROM grades WHERE student_name='{st.session_state['full_name']}'", conn)
         st.dataframe(df, use_container_width=True)
     else:
-        # ВИКЛАДАЧ/АДМІН РЕДАГУЄ
+        # ВЧИТЕЛЬ ТА ДЕКАНАТ РЕДАГУЮТЬ
         t_journal, t_ops = st.tabs(["Журнал", "📥/📤 Операції"])
         c1, c2 = st.columns(2)
         grp = c1.selectbox("Група", list(GROUPS_DATA.keys()))
@@ -521,7 +524,7 @@ def attendance_view():
         df_att = pd.read_sql(f"SELECT subject, date_column as 'Дата', status FROM attendance WHERE student_name='{st.session_state['full_name']}'", conn)
         st.dataframe(df_att, use_container_width=True)
     else:
-        # Староста/Викладач редагують
+        # Староста/Викладач/Деканат редагують
         c1, c2 = st.columns(2)
         grp = c1.selectbox("Група", list(GROUPS_DATA.keys()), key="att_grp")
         subj = c2.selectbox("Предмет", SUBJECTS_LIST, key="att_sbj")
@@ -609,8 +612,8 @@ def reports_view():
 
 def admin_integrations_view():
     st.title("🏛️ Адміністративні інтеграції")
-    # Доступ тільки для адмінів та деканату
-    if st.session_state['role'] not in EDIT_RIGHTS:
+    # Доступ тільки для адмінів та деканату (Викладачі не бачать)
+    if st.session_state['role'] not in DEAN_LEVEL:
         st.error("У вас немає доступу до цієї панелі.")
         return
 
@@ -775,6 +778,8 @@ def main():
         role_upper = st.session_state['role'].upper()
         if st.session_state['role'] == 'student':
              st.sidebar.markdown("### 🛡️ СТУДЕНТ (READ ONLY)")
+        elif st.session_state['role'] == 'teacher':
+             st.sidebar.markdown("### 👨‍🏫 ВИКЛАДАЧ (ACADEMIC)")
         else:
              st.sidebar.caption(f"Роль: {role_upper}")
         
@@ -797,8 +802,8 @@ def main():
             "Файловий репозиторій": file_repository_view
         }
         
-        # Додаткові пункти для Адміністрації
-        if st.session_state['role'] in EDIT_RIGHTS:
+        # Додаткові пункти для Адміністрації та Деканату (але не Викладачів)
+        if st.session_state['role'] in DEAN_LEVEL:
             menu_options["Адмін. Інтеграції (Деканат)"] = admin_integrations_view
         
         # Системні налаштування тільки для Admin
