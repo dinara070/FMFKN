@@ -521,27 +521,82 @@ def teachers_view():
                         st.session_state.teachers_data[dept].pop(i)
                         st.rerun()
 
+import pandas as pd
+import io
+import streamlit as st
+
 def schedule_view():
     st.title("📅 Розклад")
     conn = create_connection()
     grp = st.selectbox("Група", list(GROUPS_DATA.keys()))
-    df = pd.read_sql_query(f"SELECT day, time, subject, teacher FROM schedule WHERE group_name='{grp}'", conn)
-    if not df.empty: 
-        st.download_button("⬇️ Завантажити", convert_df_to_csv(df), f"schedule_{grp}.csv", "text/csv")
-        st.table(df)
-    else: st.info("Наразі дані не завантажені.")
     
+    # Завантаження даних з БД
+    df = pd.read_sql_query(f"SELECT day, time, subject, teacher FROM schedule WHERE group_name='{grp}'", conn)
+    
+    if not df.empty:
+        st.subheader("Експорт розкладу")
+        col1, col2, col3 = st.columns(3)
+        
+        # Експорт у CSV
+        csv = df.to_csv(index=False).encode('utf-8-sig')
+        col1.download_button("📄 Експорт CSV", csv, f"schedule_{grp}.csv", "text/csv")
+        
+        # Експорт у Excel
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Розклад')
+        col2.download_button("📊 Експорт Excel", buffer.getvalue(), f"schedule_{grp}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        
+        # Експорт у JSON
+        json_str = df.to_json(orient='records', force_ascii=False)
+        col3.download_button("📜 Експорт JSON", json_str, f"schedule_{grp}.json", "application/json")
+
+        st.table(df)
+    else:
+        st.info("Наразі дані не завантажені.")
+
+    # Секція для Адміністратора / Деканату
     if st.session_state['role'] in DEAN_LEVEL:
         st.divider()
+        
+        ### --- БЛОК ІМПОРТУ --- ###
+        st.subheader("📥 Імпорт розкладу з файлу")
+        uploaded_file = st.file_uploader("Виберіть файл (CSV або XLSX)", type=['csv', 'xlsx'])
+        
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    import_df = pd.read_csv(uploaded_file)
+                else:
+                    import_df = pd.read_excel(uploaded_file)
+                
+                if st.button("Підтвердити імпорт у базу"):
+                    # Додаємо колонку групи, якої немає у файлі, але вибрана у селектбоксі
+                    import_df['group_name'] = grp
+                    # Записуємо в БД (append - додає до існуючих)
+                    import_df.to_sql('schedule', conn, if_exists='append', index=False)
+                    st.success("Дані успішно імпортовані!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Помилка при читанні файлу: {e}")
+
+        st.divider()
+        
+        ### --- ФОРМА РУЧНОГО ДОДАВАННЯ --- ###
         with st.form("sch"):
+            st.write("➕ Додати запис вручну")
             d = st.selectbox("День", ["Понеділок", "Вівторок", "Середа", "Четвер", "П'ятниця"])
             t = st.selectbox("Час", ["08:30 - 09:50", "10:05 - 11:25", "11:40 - 13:00", "13:30 - 14:50", "15:00 - 16:20", "16:35 - 17:55"])
             s = st.text_input("Предмет")
             tch = st.text_input("Викладач", value=st.session_state['full_name'])
+            
             if st.form_submit_button("Додати"):
-                conn.execute("INSERT INTO schedule (group_name, day, time, subject, teacher) VALUES (?,?,?,?,?)", (grp, d, t, s, tch))
-                conn.commit()
-                st.rerun()
+                if s: # Перевірка, чи не порожній предмет
+                    conn.execute("INSERT INTO schedule (group_name, day, time, subject, teacher) VALUES (?,?,?,?,?)", (grp, d, t, s, tch))
+                    conn.commit()
+                    st.rerun()
+                else:
+                    st.warning("Введіть назву предмета")
 
 def documents_view():
     st.title("📂 Документообіг та Заяви")
