@@ -291,7 +291,7 @@ def login_register_page():
                 st.warning("Будь ласка, заповніть усі поля.")
 
 def main_panel():
-    st.title("🏠 Головна панель LMS")
+    st.title("🏠 Головна панель")
     st.markdown(f"### Вітаємо, {st.session_state['full_name']}!")
     conn = create_connection()
     
