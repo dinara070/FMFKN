@@ -778,35 +778,92 @@ def gradebook_view():
 def attendance_view():
     st.title("📝 Журнал Відвідуваності")
     conn = create_connection()
+    
+    # Режим для Студента
     if st.session_state['role'] == 'student':
-        df_att = pd.read_sql(f"SELECT subject, date_column as 'Дата', status FROM attendance WHERE student_name='{st.session_state['full_name']}'", conn)
+        df_att = pd.read_sql(
+            f"SELECT subject as 'Предмет', date_column as 'Дата', status as 'Статус' "
+            f"FROM attendance WHERE student_name='{st.session_state['full_name']}'", 
+            conn
+        )
         st.dataframe(df_att, use_container_width=True)
+        
+    # Режим для Адміна/Викладача
     else:
         c1, c2 = st.columns(2)
         grp = c1.selectbox("Група", list(GROUPS_DATA.keys()), key="att_grp")
         subj = c2.selectbox("Предмет", SUBJECTS_LIST, key="att_sbj")
+        
+        # Форма додавання нової дати (колонки)
         with st.expander("➕ Додати дату"):
             with st.form("new_att_col"):
-                col_name = st.text_input("Назва")
+                col_name = st.text_input("Назва (напр. 25.12)")
                 if st.form_submit_button("Створити"):
                     stds = pd.read_sql(f"SELECT full_name FROM students WHERE group_name='{grp}'", conn)['full_name'].tolist()
                     for s in stds:
-                        conn.execute("INSERT INTO attendance (student_name, group_name, subject, date_column, status) VALUES (?,?,?,?,?)", (s, grp, subj, col_name, "")) 
+                        conn.execute(
+                            "INSERT INTO attendance (student_name, group_name, subject, date_column, status) VALUES (?,?,?,?,?)", 
+                            (s, grp, subj, col_name, "")
+                        ) 
                     conn.commit()
                     st.rerun()
+
+        # Отримання даних з БД
         raw = pd.read_sql(f"SELECT student_name, date_column, status FROM attendance WHERE group_name='{grp}' AND subject='{subj}'", conn)
+        
         if not raw.empty:
+            # Створення матриці (Pivot Table)
             matrix = raw.pivot_table(index='student_name', columns='date_column', values='status', aggfunc='first').fillna("")
-            st.write("Ставте 'н' для відсутніх:")
-            edited = st.data_editor(matrix, use_container_width=True)
-            if st.button("💾 Зберегти"):
+            
+            # --- БЛОК АНАЛІТИКИ ТА ФІЛЬТРАЦІЇ ---
+            st.divider()
+            col_f1, col_f2 = st.columns([2, 1])
+            
+            with col_f1:
+                # Рахуємо пропуски ("н")
+                missed_counts = (matrix == "н").sum(axis=1)
+                max_misses = int(missed_counts.max()) if not missed_counts.empty else 0
+                n_filter = st.slider("Фільтр: Студенти з пропусками (н) більше ніж:", 0, max_misses, 0)
+            
+            with col_f2:
+                # Експорт в Excel
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                    matrix.to_excel(writer, sheet_name='Відвідуваність')
+                
+                st.write("Звітність")
+                st.download_button(
+                    label="📥 Excel",
+                    data=buffer.getvalue(),
+                    file_name=f"Journal_{grp}_{subj}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+            # Відфільтрована матриця для відображення
+            filtered_matrix = matrix[missed_counts >= n_filter]
+            
+            st.write(f"**Журнал групи {grp} з предмета {subj}** (Відображено: {len(filtered_matrix)})")
+            
+            # Редактор даних
+            edited = st.data_editor(filtered_matrix, use_container_width=True)
+            
+            # Кнопка збереження змін
+            if st.button("💾 Зберегти зміни"):
                 for s_name, row in edited.iterrows():
                     for d_col, val in row.items():
-                        exists = conn.execute("SELECT id FROM attendance WHERE student_name=? AND subject=? AND date_column=?", (s_name, subj, d_col)).fetchone()
-                        if exists: conn.execute("UPDATE attendance SET status=? WHERE id=?", (val, exists[0]))
+                        # Знаходимо ID запису в БД, щоб оновити саме його
+                        res = conn.execute(
+                            "SELECT id FROM attendance WHERE student_name=? AND subject=? AND date_column=?", 
+                            (s_name, subj, d_col)
+                        ).fetchone()
+                        if res:
+                            conn.execute("UPDATE attendance SET status=? WHERE id=?", (val, res[0]))
                 conn.commit()
-                st.success("Збережено!")
-        else: st.info("Наразі дані не завантажені.")
+                st.success("Зміни успішно збережено!")
+                st.rerun() # Оновлюємо, щоб слайдер перерахував значення
+        else:
+            st.info("Наразі даних про відвідуваність для цієї групи немає. Додайте першу дату вище.")
 
 def reports_view():
     st.title("📊 Звіти та Пошук")
