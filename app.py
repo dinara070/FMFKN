@@ -775,6 +775,10 @@ def gradebook_view():
                     st.rerun()
                 except Exception as e: st.error(f"Помилка: {e}")
 
+import io
+import pandas as pd
+import streamlit as st
+
 def attendance_view():
     st.title("📝 Журнал Відвідуваності")
     conn = create_connection()
