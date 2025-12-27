@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 import hashlib
 from datetime import datetime
+from fpdf import FPDF
 import io
 import altair as alt
 import re  # Для логіки переведення курсів
@@ -600,7 +601,6 @@ def documents_view():
     st.title("📂 Документообіг та Заяви")
     conn = create_connection()
     
-    # Видалено "📄 Шаблони заяв" зі списку
     tabs_list = ["📂 Реєстр / Мої заяви", "➕ Створити заяву"]
     if st.session_state['role'] in DEAN_LEVEL:
         tabs_list.append("⚙️ Обробка запитів")
@@ -621,6 +621,7 @@ def documents_view():
             base_q = "SELECT id, student_name as 'Студент', title as 'Тип документу', status as 'Статус', date as 'Дата' FROM documents"
             
             if filter_status != "Всі":
+                # Фільтруємо по частині слова, щоб знайти "Готово (каб 102)"
                 query = f"{base_q} WHERE status LIKE '{filter_status}%' ORDER BY id DESC"
             else:
                 query = f"{base_q} ORDER BY id DESC"
@@ -655,6 +656,7 @@ def documents_view():
             d_comment = st.text_input("Додаткові примітки (напр. 'В ТЦК м. Вінниця' або 'Терміново')")
             
             if st.form_submit_button("Надіслати запит"):
+                # Формуємо повну назву із коментарем
                 full_title = f"{d_type}"
                 if d_comment:
                     full_title += f" ({d_comment})"
@@ -662,12 +664,12 @@ def documents_view():
                 conn.execute("INSERT INTO documents (title, student_name, status, date) VALUES (?,?,?,?)", 
                              (full_title, st.session_state['full_name'], "Очікує", str(datetime.now().date())))
                 conn.commit()
-                st.success("Запит успішно надіслано до деканату!")
+                st.success("Запит успішно надіслано до деканату! Відстежуйте статус у першій вкладці.")
                 st.rerun()
 
-    # --- Вкладка 3: Обробка запитів (тепер вона під індексом 2) ---
+    # --- Вкладка 3: Обробка ---
     if st.session_state['role'] in DEAN_LEVEL:
-        with tabs[2]:
+        with tabs[3]:
             st.subheader("⚙️ Обробка запитів студентів")
             
             pending_docs = pd.read_sql("SELECT id, student_name, title, date FROM documents WHERE status='Очікує'", conn)
@@ -700,10 +702,10 @@ def documents_view():
                             
                             conn.execute("UPDATE documents SET status=? WHERE id=?", (final_status, req_id))
                             conn.commit()
-                            st.success(f"Статус запиту #{req_id} змінено")
+                            st.success(f"Статус запиту #{req_id} змінено на '{final_status}'")
                             st.rerun()
             else:
-                st.success("🎉 Всі нові запити опрацьовано.")
+                st.success("🎉 Чудова робота! Всі нові запити опрацьовано.")
 
 def file_repository_view():
     st.title("🗄️ Файловий Репозиторій")
