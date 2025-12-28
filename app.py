@@ -58,9 +58,9 @@ else:
 
 
 # --- КОНСТАНТИ ТА ПРАВА ДОСТУПУ ---
-ROLES_LIST = ["dean", "admin", "tech_admin"]
-TEACHER_LEVEL = ['dean', 'admin', 'tech_admin']
-DEAN_LEVEL = ['dean', 'admin', 'tech_admin']
+ROLES_LIST = ["dean", "admin", "tech_admin", "student", "starosta", "teacher", "methodist"]
+TEACHER_LEVEL = ['dean', 'admin', 'tech_admin', 'teacher', 'methodist']
+DEAN_LEVEL = ['dean', 'admin', 'tech_admin', 'methodist']
 
 # --- СПИСОК ПРЕДМЕТІВ ---
 SUBJECTS_LIST = [
@@ -267,38 +267,45 @@ def convert_df_to_csv(df):
 def login_register_page():
     st.header("🔐 Вхід / Реєстрація (Адміністрація)")
     action = st.radio("Оберіть дію:", ["Вхід", "Реєстрація"], horizontal=True)
+    
     conn = create_connection()
     c = conn.cursor()
 
-    ALLOWED_STAFF = ["admin", "dean"]
+    # Оновлений список ролей для реєстрації та перевірки доступу
+    ALLOWED_STAFF = ["admin", "dean", "tech_admin", "methodist", "teacher"]
 
     if action == "Вхід":
         username = st.text_input("Логін")
         password = st.text_input("Пароль", type='password')
+        
         if st.button("Увійти"):
             c.execute('SELECT * FROM users WHERE username=? AND password=?', (username, make_hashes(password)))
             user = c.fetchone()
+            
             if user:
+                # Перевіряємо, чи роль користувача входить до списку дозволених для цієї панелі
                 if user[2] not in ALLOWED_STAFF:
-                    st.error("Доступ обмежено. Тільки для Адміністратора або Декана.")
+                    st.error("Доступ обмежено. Тільки для персоналу та адміністрації.")
                 else:
                     st.session_state['logged_in'] = True
                     st.session_state['username'] = user[0]
                     st.session_state['role'] = user[2]
                     st.session_state['full_name'] = user[3]
                     st.session_state['group'] = user[4]
-                    log_action(user[3], "Login", f"Вхід системи: {user[2]}")
+                    
+                    log_action(user[3], "Login", f"Вхід у систему: {user[2]}")
                     st.success(f"Вітаємо, {user[3]}!")
                     st.rerun()
             else:
                 st.error("Невірний логін або пароль")
 
     elif action == "Реєстрація":
-        st.info("Реєстрація доступна лише для Адміністрації та Деканату.")
+        st.info("Реєстрація доступна для Адміністрації, Деканату та Технічного персоналу.")
         new_user = st.text_input("Вигадайте логін")
         new_pass = st.text_input("Вигадайте пароль", type='password')
         
-        role = st.selectbox("Ваша посада", ALLOWED_STAFF)
+        # Вибір ролі з розширеного списку (включаючи tech_admin)
+        role = st.selectbox("Ваша посада / Роль", ALLOWED_STAFF)
         
         full_name = st.text_input("Ваше ПІБ (повністю)")
         group_link = "Staff/Admin"
@@ -309,6 +316,7 @@ def login_register_page():
                     c.execute('INSERT INTO users VALUES (?,?,?,?,?)', 
                               (new_user, make_hashes(new_pass), role, full_name, group_link))
                     conn.commit()
+                    
                     log_action(full_name, "Registration", f"Новий запис: {role}")
                     st.success("Обліковий запис створено! Тепер увійдіть у вкладці 'Вхід'.")
                 except sqlite3.IntegrityError:
