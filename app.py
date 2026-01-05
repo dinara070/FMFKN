@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_cookies_controller import CookieController
 import sqlite3
 import pandas as pd
 import hashlib
@@ -343,16 +344,18 @@ def log_action(user, action, details):
 def convert_df_to_csv(df):
     return df.to_csv(index=False).encode('utf-8-sig')
 
+# Ініціалізація контролера кук
+controller = CookieController()
+
 def perform_login(user):
-    """
-    Ця функція виконує технічний вхід користувача в систему.
-    Повинна бути визначена ДО login_register_page.
-    """
     st.session_state['logged_in'] = True
     st.session_state['username'] = user[0]
     st.session_state['role'] = user[2]
     st.session_state['full_name'] = user[3]
     st.session_state['group'] = user[4]
+    
+    # ЗБЕРІГАЄМО КУКУ: Система запам'ятовує ідентифікатор користувача в браузері на 30 днів
+    controller.set('user_fingerprint', user[0]) 
     
     log_action(user[3], "Login", f"Вхід у систему: {user[2]}")
     st.success(f"Вітаємо, {user[3]}!")
@@ -363,7 +366,7 @@ def perform_login(user):
 def login_register_page():
     st.header("🔐 Вхід / Реєстрація")
     
-    # Ініціалізація збережених акаунтів
+    # 1. Ініціалізація збережених акаунтів у сесії (для випадаючого списку)
     if 'saved_accounts' not in st.session_state:
         conn = create_connection()
         try:
@@ -372,17 +375,33 @@ def login_register_page():
         except:
             st.session_state['saved_accounts'] = []
 
+    # 2. ЛОГІКА "АВТОМАТИЧНЕ ВПІЗНАННЯ" ЧЕРЕЗ COOKIE
+    # Перевіряємо наявність токена в браузері перед відображенням форми
+    saved_token = controller.get('user_fingerprint')
+    if saved_token and not st.session_state.get('logged_in'):
+        conn = create_connection()
+        c = conn.cursor()
+        c.execute('SELECT * FROM users WHERE username=?', (saved_token,))
+        user = c.fetchone()
+        if user:
+            st.info(f"👋 Система впізнала ваш пристрій як: **{user[3]}**")
+            if st.button("Увійти автоматично (я забув пароль)"):
+                perform_login(user)
+                return # Перериваємо функцію, щоб не показувати решту інтерфейсу
+
+    # 3. ОСНОВНИЙ ІНТЕРФЕЙС (Радіо-кнопки)
     action = st.radio("Оберіть дію:", ["Вхід", "Реєстрація", "Швидкий вхід"], horizontal=True)
     conn = create_connection()
     c = conn.cursor()
 
+    # --- ШВИДКИЙ ВХІД ---
     if action == "Швидкий вхід":
         st.info("Оберіть збережений акаунт для входу")
         if st.session_state['saved_accounts']:
             selected_user = st.selectbox("Ваш логін", st.session_state['saved_accounts'])
             password = st.text_input("Пароль", type='password', key="quick_pass")
             
-            if st.button("Увійти через швидкий вхід"):
+            if st.button("Увійти"):
                 c.execute('SELECT * FROM users WHERE username=? AND password=?', (selected_user, make_hashes(password)))
                 user = c.fetchone()
                 if user:
@@ -392,6 +411,7 @@ def login_register_page():
         else:
             st.warning("Немає збережених акаунтів.")
 
+    # --- ЗВИЧАЙНИЙ ВХІД ---
     elif action == "Вхід":
         username = st.text_input("Логін")
         password = st.text_input("Пароль", type='password')
@@ -402,12 +422,14 @@ def login_register_page():
             user = c.fetchone()
             
             if user:
+                # Додаємо в список швидкого входу, якщо обрано чекбокс
                 if remember_me and (username not in st.session_state['saved_accounts']):
                     st.session_state['saved_accounts'].append(username)
                 perform_login(user)
             else:
                 st.error("Невірний логін або пароль")
 
+    # --- РЕЄСТРАЦІЯ ---
     elif action == "Реєстрація":
         st.info("Реєстрація доступна для персоналу та адміністрації")
         new_user = st.text_input("Вигадайте логін")
@@ -421,9 +443,19 @@ def login_register_page():
                     c.execute('INSERT INTO users VALUES (?,?,?,?,?)', 
                               (new_user, make_hashes(new_pass), role, full_name, "Staff/Admin"))
                     conn.commit()
+                    
+                    # Встановлюємо Cookie в браузері
+                    controller.set('user_fingerprint', new_user)
+                    
+                    # Оновлюємо список акаунтів у поточному стані сесії
                     if new_user not in st.session_state['saved_accounts']:
                         st.session_state['saved_accounts'].append(new_user)
-                    st.success("Обліковий запис створено! Тепер ви можете увійти.")
+                    
+                    st.success("Обліковий запис створено! Ваш браузер запам'ятав вас.")
+                    
+                    # Автоматично входимо після реєстрації
+                    c.execute('SELECT * FROM users WHERE username=?', (new_user,))
+                    perform_login(c.fetchone())
                 except sqlite3.IntegrityError:
                     st.error("Цей логін вже зайнятий.")
             else:
