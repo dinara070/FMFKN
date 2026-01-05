@@ -205,6 +205,22 @@ TEACHERS_DATA = {
 }
 
 # --- BACKEND ---
+
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def create_connection():
+    return sqlite3.connect('university_v22.db', check_same_thread=False)
+
+def log_action(user, action, details):
+    conn = create_connection()
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("INSERT INTO system_logs (user, action, details, timestamp) VALUES (?,?,?,?)", (user, action, details, ts))
+    conn.commit()
+
+def convert_df_to_csv(df):
+    return df.to_csv(index=False).encode('utf-8-sig')
+
 def make_hashes(password):
     # Хешування паролів: ми не зберігаємо паролі у відкритому вигляді.
     # Алгоритм SHA-256 перетворює пароль на унікальний рядок символів.
@@ -326,6 +342,21 @@ def log_action(user, action, details):
 
 def convert_df_to_csv(df):
     return df.to_csv(index=False).encode('utf-8-sig')
+
+def perform_login(user):
+    """
+    Ця функція виконує технічний вхід користувача в систему.
+    Повинна бути визначена ДО login_register_page.
+    """
+    st.session_state['logged_in'] = True
+    st.session_state['username'] = user[0]
+    st.session_state['role'] = user[2]
+    st.session_state['full_name'] = user[3]
+    st.session_state['group'] = user[4]
+    
+    log_action(user[3], "Login", f"Вхід у систему: {user[2]}")
+    st.success(f"Вітаємо, {user[3]}!")
+    st.rerun()
 
 # --- СТОРІНКИ ---
 
