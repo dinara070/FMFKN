@@ -330,90 +330,72 @@ def convert_df_to_csv(df):
 # --- СТОРІНКИ ---
 
 def login_register_page():
+    # --- ІНТЕРФЕЙС АВТОРИЗАЦІЇ ---
+    # Сторінка авторизації. Використовує SQL-запит для перевірки логіна/пароля.
     st.header("🔐 Вхід / Реєстрація (Адміністрація)")
-    
-    # Ініціалізуємо список збережених користувачів у сесії, якщо його немає
-    if 'saved_accounts' not in st.session_state:
-        conn = create_connection()
-        accs = pd.read_sql("SELECT username FROM users", conn)['username'].tolist()
-        st.session_state['saved_accounts'] = accs
+    # Створюємо перемикач між входом в існуючий акаунт та створенням нового
+    action = st.radio("Оберіть дію:", ["Вхід", "Реєстрація"], horizontal=True)
 
-    action = st.radio("Оберіть дію:", ["Вхід", "Реєстрація", "Швидкий вхід"], horizontal=True)
-
+    # Встановлюємо з'єднання з базою даних для перевірки або запису користувачів
     conn = create_connection()
     c = conn.cursor()
+
+    # Оновлений список ролей для реєстрації та перевірки доступу
     ALLOWED_STAFF = ["admin", "dean"]
 
-    if action == "Швидкий вхід":
-        st.info("Оберіть збережений аккаунт для входу")
-        if st.session_state['saved_accounts']:
-            selected_user = st.selectbox("Ваш логін", st.session_state['saved_accounts'])
-            password = st.text_input("Пароль", type='password', key="quick_pass")
-            
-            if st.button("Увійти через швидкий вхід"):
-                c.execute('SELECT * FROM users WHERE username=? AND password=?', (selected_user, make_hashes(password)))
-                user = c.fetchone()
-                if user:
-                    perform_login(user)
-                else:
-                    st.error("Невірний пароль для цього користувача")
-        else:
-            st.warning("Немає збережених аккаунтів. Будь ласка, увійдіть звичайно або зареєструйтесь.")
-
-    elif action == "Вхід":
+    if action == "Вхід":
         username = st.text_input("Логін")
         password = st.text_input("Пароль", type='password')
-        remember_me = st.checkbox("Запам'ятати мене на цьому пристрої")
         
         if st.button("Увійти"):
+            # Шукаємо користувача з таким логіном та хешем пароля
             c.execute('SELECT * FROM users WHERE username=? AND password=?', (username, make_hashes(password)))
             user = c.fetchone()
             
             if user:
-                if user[2] not in ALLOWED_STAFF and user[2] != 'student': # Додав перевірку
-                    st.error("Доступ обмежено.")
-                else:
-                    if remember_me:
-                        # Логіка "запам'ятовування" — додаємо в список швидкого входу
-                        if username not in st.session_state['saved_accounts']:
-                            st.session_state['saved_accounts'].append(username)
-                    perform_login(user)
+                # Перевіряємо, чи роль користувача входить до списку дозволених для цієї панелі
+                if user[2] not in ALLOWED_STAFF:
+                    st.error("Доступ обмежено. Тільки для персоналу та адміністрації.")
+                else: 
+                    # Зберігаємо дані користувача в session_state, щоб вони були доступні на всіх сторінках
+                    st.session_state['logged_in'] = True
+                    st.session_state['username'] = user[0]
+                    st.session_state['role'] = user[2]
+                    st.session_state['full_name'] = user[3]
+                    st.session_state['group'] = user[4]
+                    
+                    log_action(user[3], "Login", f"Вхід у систему: {user[2]}")
+                    st.success(f"Вітаємо, {user[3]}!")
+                    st.rerun() # Перезавантажуємо додаток, щоб показати головну панель
             else:
                 st.error("Невірний логін або пароль")
 
     elif action == "Реєстрація":
-        st.info("Створення нового профілю")
+        st.info("Реєстрація доступна для Адміністрації та Деканату")
         new_user = st.text_input("Вигадайте логін")
         new_pass = st.text_input("Вигадайте пароль", type='password')
-        role = st.selectbox("Роль", ["admin", "dean", "teacher", "tech_admin"])
-        full_name = st.text_input("Ваше ПІБ")
+        
+        # Вибір ролі з розширеного списку (включаючи tech_admin)
+        role = st.selectbox("Ваша посада / Роль", ALLOWED_STAFF)
+        
+        full_name = st.text_input("Ваше ПІБ (повністю)")
+        group_link = "Staff/Admin"
 
         if st.button("Зареєструватися"):
             if new_user and new_pass and full_name:
                 try:
+                    # Записуємо нового користувача в таблицю 'users'.
+                    # Пароль обов'язково хешуємо перед збереженням!
                     c.execute('INSERT INTO users VALUES (?,?,?,?,?)', 
-                              (new_user, make_hashes(new_pass), role, full_name, "Staff"))
+                              (new_user, make_hashes(new_pass), role, full_name, group_link))
                     conn.commit()
-                    # Автоматично додаємо в список збережених при реєстрації
-                    if 'saved_accounts' in st.session_state:
-                        st.session_state['saved_accounts'].append(new_user)
                     
-                    st.success("Аккаунт створено! Тепер ви можете обрати його у 'Швидкому вході'.")
+                    log_action(full_name, "Registration", f"Новий запис: {role}")
+                    st.success("Обліковий запис створено! Тепер увійдіть у вкладці 'Вхід'.")
                 except sqlite3.IntegrityError:
                     st.error("Цей логін вже зайнятий.")
             else:
-                st.warning("Заповніть усі поля.")
-
-# Допоміжна функція для логіну (щоб не дублювати код)
-def perform_login(user):
-    st.session_state['logged_in'] = True
-    st.session_state['username'] = user[0]
-    st.session_state['role'] = user[2]
-    st.session_state['full_name'] = user[3]
-    st.session_state['group'] = user[4]
-    log_action(user[3], "Login", f"Вхід: {user[2]}")
-    st.success(f"Вітаємо, {user[3]}!")
-    st.rerun()
+                st.warning("Будь ласка, заповніть усі поля.")
 
 def main_panel():
     # Головна дашборд-панель з візуалізацією статистики
