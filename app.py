@@ -332,25 +332,32 @@ def convert_df_to_csv(df):
 def login_register_page():
     st.header("🔐 Вхід / Реєстрація")
     
+    # Ініціалізація збережених акаунтів
     if 'saved_accounts' not in st.session_state:
         conn = create_connection()
-        accs = pd.read_sql("SELECT username FROM users", conn)['username'].tolist()
-        st.session_state['saved_accounts'] = accs
+        try:
+            accs = pd.read_sql("SELECT username FROM users", conn)['username'].tolist()
+            st.session_state['saved_accounts'] = accs
+        except:
+            st.session_state['saved_accounts'] = []
 
     action = st.radio("Оберіть дію:", ["Вхід", "Реєстрація", "Швидкий вхід"], horizontal=True)
     conn = create_connection()
     c = conn.cursor()
 
     if action == "Швидкий вхід":
-        st.info("Оберіть збережений акаунт")
+        st.info("Оберіть збережений акаунт для входу")
         if st.session_state['saved_accounts']:
             selected_user = st.selectbox("Ваш логін", st.session_state['saved_accounts'])
             password = st.text_input("Пароль", type='password', key="quick_pass")
+            
             if st.button("Увійти через швидкий вхід"):
                 c.execute('SELECT * FROM users WHERE username=? AND password=?', (selected_user, make_hashes(password)))
                 user = c.fetchone()
-                if user: perform_login(user)
-                else: st.error("Невірний пароль")
+                if user:
+                    perform_login(user)
+                else:
+                    st.error("Невірний пароль для цього користувача")
         else:
             st.warning("Немає збережених акаунтів.")
 
@@ -358,27 +365,38 @@ def login_register_page():
         username = st.text_input("Логін")
         password = st.text_input("Пароль", type='password')
         remember_me = st.checkbox("Запам'ятати мене на цьому пристрої")
+        
         if st.button("Увійти"):
             c.execute('SELECT * FROM users WHERE username=? AND password=?', (username, make_hashes(password)))
             user = c.fetchone()
+            
             if user:
-                if remember_me and username not in st.session_state['saved_accounts']:
+                if remember_me and (username not in st.session_state['saved_accounts']):
                     st.session_state['saved_accounts'].append(username)
                 perform_login(user)
-            else: st.error("Невірний логін або пароль")
+            else:
+                st.error("Невірний логін або пароль")
 
     elif action == "Реєстрація":
-        new_user = st.text_input("Логін")
-        new_pass = st.text_input("Пароль", type='password')
-        role = st.selectbox("Роль", ROLES_LIST)
-        full_name = st.text_input("ПІБ")
+        st.info("Реєстрація доступна для персоналу та адміністрації")
+        new_user = st.text_input("Вигадайте логін")
+        new_pass = st.text_input("Вигадайте пароль", type='password')
+        role = st.selectbox("Ваша посада / Роль", ROLES_LIST)
+        full_name = st.text_input("Ваше ПІБ (повністю)")
+
         if st.button("Зареєструватися"):
-            try:
-                c.execute('INSERT INTO users VALUES (?,?,?,?,?)', (new_user, make_hashes(new_pass), role, full_name, "General"))
-                conn.commit()
-                st.session_state['saved_accounts'].append(new_user)
-                st.success("Аккаунт створено!")
-            except: st.error("Логін зайнятий")
+            if new_user and new_pass and full_name:
+                try:
+                    c.execute('INSERT INTO users VALUES (?,?,?,?,?)', 
+                              (new_user, make_hashes(new_pass), role, full_name, "Staff/Admin"))
+                    conn.commit()
+                    if new_user not in st.session_state['saved_accounts']:
+                        st.session_state['saved_accounts'].append(new_user)
+                    st.success("Обліковий запис створено! Тепер ви можете увійти.")
+                except sqlite3.IntegrityError:
+                    st.error("Цей логін вже зайнятий.")
+            else:
+                st.warning("Будь ласка, заповніть усі поля.")
 
 def main_panel():
     # Головна дашборд-панель з візуалізацією статистики
