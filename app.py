@@ -330,72 +330,55 @@ def convert_df_to_csv(df):
 # --- СТОРІНКИ ---
 
 def login_register_page():
-    # --- ІНТЕРФЕЙС АВТОРИЗАЦІЇ ---
-    # Сторінка авторизації. Використовує SQL-запит для перевірки логіна/пароля.
-    st.header("🔐 Вхід / Реєстрація (Адміністрація)")
-    # Створюємо перемикач між входом в існуючий акаунт та створенням нового
-    action = st.radio("Оберіть дію:", ["Вхід", "Реєстрація"], horizontal=True)
+    st.header("🔐 Вхід / Реєстрація")
+    
+    if 'saved_accounts' not in st.session_state:
+        conn = create_connection()
+        accs = pd.read_sql("SELECT username FROM users", conn)['username'].tolist()
+        st.session_state['saved_accounts'] = accs
 
-    # Встановлюємо з'єднання з базою даних для перевірки або запису користувачів
+    action = st.radio("Оберіть дію:", ["Вхід", "Реєстрація", "Швидкий вхід"], horizontal=True)
     conn = create_connection()
     c = conn.cursor()
 
-    # Оновлений список ролей для реєстрації та перевірки доступу
-    ALLOWED_STAFF = ["admin", "dean"]
+    if action == "Швидкий вхід":
+        st.info("Оберіть збережений акаунт")
+        if st.session_state['saved_accounts']:
+            selected_user = st.selectbox("Ваш логін", st.session_state['saved_accounts'])
+            password = st.text_input("Пароль", type='password', key="quick_pass")
+            if st.button("Увійти через швидкий вхід"):
+                c.execute('SELECT * FROM users WHERE username=? AND password=?', (selected_user, make_hashes(password)))
+                user = c.fetchone()
+                if user: perform_login(user)
+                else: st.error("Невірний пароль")
+        else:
+            st.warning("Немає збережених акаунтів.")
 
-    if action == "Вхід":
+    elif action == "Вхід":
         username = st.text_input("Логін")
         password = st.text_input("Пароль", type='password')
-        
+        remember_me = st.checkbox("Запам'ятати мене на цьому пристрої")
         if st.button("Увійти"):
-            # Шукаємо користувача з таким логіном та хешем пароля
             c.execute('SELECT * FROM users WHERE username=? AND password=?', (username, make_hashes(password)))
             user = c.fetchone()
-            
             if user:
-                # Перевіряємо, чи роль користувача входить до списку дозволених для цієї панелі
-                if user[2] not in ALLOWED_STAFF:
-                    st.error("Доступ обмежено. Тільки для персоналу та адміністрації.")
-                else: 
-                    # Зберігаємо дані користувача в session_state, щоб вони були доступні на всіх сторінках
-                    st.session_state['logged_in'] = True
-                    st.session_state['username'] = user[0]
-                    st.session_state['role'] = user[2]
-                    st.session_state['full_name'] = user[3]
-                    st.session_state['group'] = user[4]
-                    
-                    log_action(user[3], "Login", f"Вхід у систему: {user[2]}")
-                    st.success(f"Вітаємо, {user[3]}!")
-                    st.rerun() # Перезавантажуємо додаток, щоб показати головну панель
-            else:
-                st.error("Невірний логін або пароль")
+                if remember_me and username not in st.session_state['saved_accounts']:
+                    st.session_state['saved_accounts'].append(username)
+                perform_login(user)
+            else: st.error("Невірний логін або пароль")
 
     elif action == "Реєстрація":
-        st.info("Реєстрація доступна для Адміністрації та Деканату")
-        new_user = st.text_input("Вигадайте логін")
-        new_pass = st.text_input("Вигадайте пароль", type='password')
-        
-        # Вибір ролі з розширеного списку (включаючи tech_admin)
-        role = st.selectbox("Ваша посада / Роль", ALLOWED_STAFF)
-        
-        full_name = st.text_input("Ваше ПІБ (повністю)")
-        group_link = "Staff/Admin"
-
+        new_user = st.text_input("Логін")
+        new_pass = st.text_input("Пароль", type='password')
+        role = st.selectbox("Роль", ROLES_LIST)
+        full_name = st.text_input("ПІБ")
         if st.button("Зареєструватися"):
-            if new_user and new_pass and full_name:
-                try:
-                    # Записуємо нового користувача в таблицю 'users'.
-                    # Пароль обов'язково хешуємо перед збереженням!
-                    c.execute('INSERT INTO users VALUES (?,?,?,?,?)', 
-                              (new_user, make_hashes(new_pass), role, full_name, group_link))
-                    conn.commit()
-                    
-                    log_action(full_name, "Registration", f"Новий запис: {role}")
-                    st.success("Обліковий запис створено! Тепер увійдіть у вкладці 'Вхід'.")
-                except sqlite3.IntegrityError:
-                    st.error("Цей логін вже зайнятий.")
-            else:
-                st.warning("Будь ласка, заповніть усі поля.")
+            try:
+                c.execute('INSERT INTO users VALUES (?,?,?,?,?)', (new_user, make_hashes(new_pass), role, full_name, "General"))
+                conn.commit()
+                st.session_state['saved_accounts'].append(new_user)
+                st.success("Аккаунт створено!")
+            except: st.error("Логін зайнятий")
 
 def main_panel():
     # Головна дашборд-панель з візуалізацією статистики
