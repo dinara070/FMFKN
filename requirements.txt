@@ -1,7 +1,6 @@
-pandas
 streamlit
+streamlit-cookies-controller
+pandas
+altair
 xlsxwriter
 openpyxl
-fpdf2
-streamlit-cookies-controller
-streamlit-gsheets
