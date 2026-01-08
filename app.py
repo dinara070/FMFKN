@@ -301,7 +301,7 @@ def perform_login(user):
     st.session_state['full_name'] = user[3]
     st.session_state['group'] = user[4]
     
-    # Зберігаємо логін у кукі для автозаповнення при наступному візиті (як на відео)
+    # Зберігаємо логін у кукі для автозаповнення при наступному візиті
     controller.set('user_login_hint', user[0]) 
     
     log_action(user[3], "Login", f"Вхід у систему")
